@@ -1,4 +1,8 @@
 -- player.lua
+-- Player module: movement, shooting, draw, hp
+local Audio = require "audio"
+local Bullet = require "bullet"
+
 local Player = {}
 Player.x = 400
 Player.y = 520
@@ -7,13 +11,13 @@ Player.h = 32
 Player.speed = 300
 Player.hp = 3
 Player.shootTimer = 0
-Player.shootInterval = 0.18 -- rate of fire
+Player.shootInterval = 0.18
 
 function Player.load()
-    Player.x = 400 - Player.w/2
-    Player.y = 520
+    Player.x = love.graphics.getWidth() / 2 - Player.w/2
+    Player.y = love.graphics.getHeight() - 80
     Player.hp = 3
-    Player.shootTimer = 0
+    Player.shootTimer = Player.shootInterval
 end
 
 function Player.update(dt)
@@ -26,7 +30,7 @@ function Player.update(dt)
     Player.x = Player.x + moveX * Player.speed * dt
     Player.y = Player.y + moveY * Player.speed * dt
 
-    -- clamp to window
+    -- clamp
     Player.x = math.max(0, math.min(love.graphics.getWidth() - Player.w, Player.x))
     Player.y = math.max(0, math.min(love.graphics.getHeight() - Player.h, Player.y))
 
@@ -35,22 +39,22 @@ end
 
 function Player.draw()
     love.graphics.setColor(0.2, 0.7, 1.0)
-    love.graphics.rectangle("fill", Player.x, Player.y, Player.w, Player.h)
-    -- cockpit highlight
+    love.graphics.rectangle("fill", Player.x, Player.y, Player.w, Player.h, 6, 6)
     love.graphics.setColor(1,1,1,0.12)
-    love.graphics.rectangle("fill", Player.x+6, Player.y+6, Player.w-12, Player.h-12)
+    love.graphics.rectangle("fill", Player.x+6, Player.y+6, Player.w-12, Player.h-12, 4, 4)
+    love.graphics.setColor(1,1,1)
 end
 
 function Player.shoot()
     if Player.shootTimer >= Player.shootInterval then
         Player.shootTimer = 0
-        local Bullet = require "bullet"
         Bullet.spawn(Player.x + Player.w/2, Player.y, 0, -500, "player")
+        Audio.playSFX("bullet")
     end
 end
 
 function Player:hit(damage)
-    self.hp = self.hp - damage
+    self.hp = self.hp - (damage or 1)
 end
 
 return Player

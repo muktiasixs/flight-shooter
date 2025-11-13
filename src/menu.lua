@@ -1,22 +1,18 @@
--- menu.lua
--- Simple Menu UI for Space Shooter (Love2D)
+-- menu.lua (fixed slider coordinates + audio integration)
+local Audio = require "audio"
 
 local Menu = {}
 
 local fontTitle
 local fontMenu
-local items -- main menu items
+local items
 local selected = 1
-local mousePressed = false
 
--- Options UI state
 local inOptions = false
-local musicVolume = 1.0
-local sfxVolume = 1.0
+local musicVolume = Audio.getMusicVolume()
+local sfxVolume = Audio.getSFXVolume()
+local sliderActive = nil
 
-local sliderActive = nil -- "music" or "sfx" when dragging
-
--- callbacks set by main.lua
 local callbacks = {
     start = function() end,
     quit  = function() love.event.quit() end,
@@ -24,7 +20,6 @@ local callbacks = {
 }
 
 function Menu.init(cbs)
-    callbacks = callbacks or {}
     if cbs then
         callbacks.start = cbs.start or callbacks.start
         callbacks.quit  = cbs.quit  or callbacks.quit
@@ -42,8 +37,9 @@ function Menu.init(cbs)
 
     selected = 1
     inOptions = false
+    sliderActive = nil
 
-    -- load saved settings if present in love.filesystem
+    -- load saved settings
     if love.filesystem.getInfo("ss_settings.lua") then
         local ok, chunk = pcall(love.filesystem.load, "ss_settings.lua")
         if ok and chunk then
@@ -54,6 +50,9 @@ function Menu.init(cbs)
             end
         end
     end
+
+    Audio.setMusicVolume(musicVolume)
+    Audio.setSFXVolume(sfxVolume)
 end
 
 local function saveSettings()
@@ -67,32 +66,29 @@ local function isHover(x,y,w,h)
 end
 
 function Menu.update(dt)
-    -- animated background or other effects could go here (kept simple)
-    -- keyboard navigation
-    if love.keyboard.isDown("up") then
-        -- navigate only when not in options
-        if not inOptions then
-            selected = selected - 1
-            if selected < 1 then selected = #items end
-        end
-    elseif love.keyboard.isDown("down") then
-        if not inOptions then
-            selected = selected + 1
-            if selected > #items then selected = 1 end
-        end
+    -- keyboard nav (simple)
+    if love.keyboard.isDown("up") and not inOptions then
+        selected = math.max(1, selected - 1)
+    elseif love.keyboard.isDown("down") and not inOptions then
+        selected = math.min(#items, selected + 1)
     end
 
-    -- mouse selection highlight handled in draw + click handling in mousepressed
-
-    -- slider dragging
+    -- handle dragging slider (use same coords as draw)
     if sliderActive then
+        local w = love.graphics.getWidth()
+        local panelW = w - 300
+        local px = 150
+        local sliderX = px + 50
+        local sliderW = panelW - 100
         local mx = love.mouse.getX()
-        local sliderX, sliderY = 200, 220
-        if sliderActive == "music" then sliderY = 220 else sliderY = 260 end
-        local w = love.graphics.getWidth() - 400
-        local rel = math.max(0, math.min(1, (mx - sliderX) / w))
-        if sliderActive == "music" then musicVolume = rel else sfxVolume = rel end
-        love.audio.setVolume(musicVolume) -- set master volume to music for immediate feedback
+        local rel = math.max(0, math.min(1, (mx - sliderX) / sliderW))
+        if sliderActive == "music" then
+            musicVolume = rel
+            Audio.setMusicVolume(musicVolume)
+        elseif sliderActive == "sfx" then
+            sfxVolume = rel
+            Audio.setSFXVolume(sfxVolume)
+        end
     end
 end
 
@@ -101,7 +97,6 @@ function Menu.draw()
 
     -- background
     love.graphics.clear(0.03, 0.03, 0.06)
-    -- subtle stars
     love.graphics.setColor(1,1,1,0.06)
     for i=1,80 do
         local sx = (i*47) % w
@@ -109,38 +104,32 @@ function Menu.draw()
         love.graphics.points(sx, sy)
     end
 
-    -- Title
     love.graphics.setFont(fontTitle)
     love.graphics.setColor(0.9, 0.9, 1)
     love.graphics.printf("SPACE SHOOTER", 0, 80, w, "center")
 
+    love.graphics.setFont(fontMenu)
     if inOptions then
-        -- Options panel
-        love.graphics.setFont(fontMenu)
         local panelW = w - 300
         local panelH = 260
         local px = 150
         local py = 160
-        -- panel background
         love.graphics.setColor(0,0,0,0.6)
         love.graphics.rectangle("fill", px, py, panelW, panelH, 8, 8)
-        -- panel title
+
         love.graphics.setColor(1,1,1)
         love.graphics.printf("Options", px, py + 10, panelW, "center")
 
-        -- Music slider
+        -- Music slider (positions defined relative to panel)
         love.graphics.setColor(0.8,0.8,0.8)
         love.graphics.print("Music Volume", px + 20, py + 60)
         local sliderX = px + 50
         local sliderY = py + 100
         local sliderW = panelW - 100
-        -- slider background
         love.graphics.setColor(0.2,0.2,0.2)
         love.graphics.rectangle("fill", sliderX, sliderY, sliderW, 8, 4, 4)
-        -- slider fill
         love.graphics.setColor(0.25, 0.7, 1)
         love.graphics.rectangle("fill", sliderX, sliderY, sliderW * musicVolume, 8, 4, 4)
-        -- knob
         love.graphics.setColor(1,1,1)
         love.graphics.circle("fill", sliderX + sliderW * musicVolume, sliderY + 4, 8)
 
@@ -156,30 +145,22 @@ function Menu.draw()
         love.graphics.setColor(1,1,1)
         love.graphics.circle("fill", sX + sliderW * sfxVolume, sY + 4, 8)
 
-        -- Fullscreen toggle
-        local fsText = love.window.getFullscreen() and "Fullscreen: ON" or "Fullscreen: OFF"
+        -- Fullscreen hint
+        local fsText = love.window.getFullscreen() and "Fullscreen: ON (press F)" or "Fullscreen: OFF (press F)"
         love.graphics.setColor(0.9,0.9,0.9)
         love.graphics.print(fsText, px + 20, py + 200)
 
-        -- Back hint
         love.graphics.setColor(1,1,1,0.8)
         love.graphics.printf("Press ESC to go back", px, py + panelH - 28, panelW, "center")
     else
-        -- Main menu items
-        love.graphics.setFont(fontMenu)
         local baseY = 200
         for i, item in ipairs(items) do
             local text = item.label
             local textW = fontMenu:getWidth(text)
             local x = (w - textW) / 2
             local y = baseY + (i-1) * 48
-            -- hover if mouse over
-            local isHovering = isHover(x - 18, y - 8, textW + 36, 36)
-            if isHovering then
-                selected = i
-            end
+            if isHover(x - 18, y - 8, textW + 36, 36) then selected = i end
             if selected == i then
-                -- highlight background
                 love.graphics.setColor(0.15, 0.45, 0.9, 0.9)
                 love.graphics.rectangle("fill", x - 18, y - 8, textW + 36, 36, 6, 6)
                 love.graphics.setColor(1,1,1)
@@ -188,7 +169,6 @@ function Menu.draw()
             end
             love.graphics.print(text, x, y)
         end
-
         love.graphics.setColor(1,1,1,0.6)
         love.graphics.printf("Use Arrow Keys / Mouse. Enter to select.", 0, h - 60, w, "center")
     end
@@ -197,32 +177,33 @@ end
 function Menu.mousepressed(x,y,button)
     if button ~= 1 then return end
     if inOptions then
-        -- check slider knobs
         local w = love.graphics.getWidth()
         local panelW = w - 300
         local px = 150
+        local py = 160
         local sliderX = px + 50
         local sliderW = panelW - 100
-        local musicY = 160 + 60
-        local mx,my = love.mouse.getPosition()
-        -- music slider area
-        if mx >= sliderX and mx <= sliderX + sliderW and my >= 220 and my <= 240 then
+        local musicY = py + 100
+        local sfxY = py + 160
+
+        -- music slider click area
+        if x >= sliderX and x <= sliderX + sliderW and y >= musicY - 8 and y <= musicY + 16 then
             sliderActive = "music"
             return
         end
         -- sfx slider area
-        if mx >= sliderX and mx <= sliderX + sliderW and my >= 260 and my <= 280 then
+        if x >= sliderX and x <= sliderX + sliderW and y >= sfxY - 8 and y <= sfxY + 16 then
             sliderActive = "sfx"
             return
         end
-        -- toggle fullscreen if clicked near text
-        local fsBoxX, fsBoxY, fsBoxW, fsBoxH = px + 20, 320, 200, 24
-        if mx >= fsBoxX and mx <= fsBoxX + fsBoxW and my >= fsBoxY and my <= fsBoxY + fsBoxH then
+        -- fullscreen toggle area (simple)
+        local fsBoxX, fsBoxY, fsBoxW, fsBoxH = px + 20, py + 200, 200, 24
+        if x >= fsBoxX and x <= fsBoxX + fsBoxW and y >= fsBoxY and y <= fsBoxY + fsBoxH then
             love.window.setFullscreen(not love.window.getFullscreen())
+            Audio.playSFX("menu")
             return
         end
     else
-        -- main menu click -> trigger selected item
         local w = love.graphics.getWidth()
         local baseY = 200
         for i, item in ipairs(items) do
@@ -231,7 +212,7 @@ function Menu.mousepressed(x,y,button)
             local y = baseY + (i-1) * 48
             if isHover(x - 18, y - 8, textW + 36, 36) then
                 selected = i
-                -- trigger
+                Audio.playSFX("menu")
                 local id = item.id
                 if id == "start" then
                     callbacks.start()
@@ -258,20 +239,21 @@ function Menu.keypressed(key)
             inOptions = false
             saveSettings()
             callbacks.back()
-        end
-        if key == "f" then
+            Audio.playSFX("menu")
+        elseif key == "f" then
             love.window.setFullscreen(not love.window.getFullscreen())
-        end
-        if key == "left" then
+            Audio.playSFX("menu")
+        elseif key == "left" then
             musicVolume = math.max(0, musicVolume - 0.05)
-            love.audio.setVolume(musicVolume)
+            Audio.setMusicVolume(musicVolume)
         elseif key == "right" then
             musicVolume = math.min(1, musicVolume + 0.05)
-            love.audio.setVolume(musicVolume)
+            Audio.setMusicVolume(musicVolume)
         end
     else
         if key == "return" or key == "kpenter" or key == "space" then
             local id = items[selected].id
+            Audio.playSFX("menu")
             if id == "start" then
                 callbacks.start()
             elseif id == "options" then
